@@ -105,19 +105,32 @@ class AIService:
         client = replicate.Client(api_token=config.api_key, timeout=180)
         model = config.model_name or "black-forest-labs/flux-2-klein-9b"
 
+        is_nano = "nano-banana" in model.lower()
+        max_refs = 3 if is_nano else 5
+
         files = []
         if context_images:
-            for p in context_images[:5]:  # FLUX accepts up to 5 reference images
+            for p in context_images[:max_refs]:
                 if os.path.exists(p):
                     files.append(open(p, "rb"))
 
-        inp = {"prompt": prompt, "output_format": "png"}
-        if files:
-            inp["images"] = files
-        inp["aspect_ratio"] = aspect_ratio if aspect_ratio in self._FLUX_AR else (
-            "match_input_image" if files else "1:1")
+        # Input schema differs per model family on Replicate.
+        if is_nano:
+            # google/nano-banana: prompt + image_input[]; no aspect_ratio param.
+            inp = {"prompt": prompt}
+            if files:
+                inp["image_input"] = files
+            ar_log = "n/a"
+        else:
+            # FLUX.2: prompt + images[] + aspect_ratio.
+            inp = {"prompt": prompt, "output_format": "png"}
+            if files:
+                inp["images"] = files
+            inp["aspect_ratio"] = aspect_ratio if aspect_ratio in self._FLUX_AR else (
+                "match_input_image" if files else "1:1")
+            ar_log = inp["aspect_ratio"]
 
-        logger.info(f"DEBUG: Replicate run model={model} refs={len(files)} ar={inp['aspect_ratio']}")
+        logger.info(f"DEBUG: Replicate run model={model} refs={len(files)} ar={ar_log}")
         _t0 = time.time()
         try:
             out = None
