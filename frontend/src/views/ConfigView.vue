@@ -27,10 +27,12 @@
         <el-form-item label="Provider">
           <el-select v-model="form.provider" placeholder="Select provider">
             <el-option label="Google" value="google" />
+            <el-option label="Replicate" value="replicate" />
           </el-select>
         </el-form-item>
         <el-form-item label="Model Name">
-          <el-input v-model="form.model_name" placeholder="e.g. gemini-1.5-flash" />
+          <el-input v-model="form.model_name"
+            :placeholder="form.provider === 'replicate' ? 'e.g. black-forest-labs/flux-2-klein-9b' : 'e.g. gemini-3-pro-image-preview'" />
         </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="form.api_key" type="password" show-password />

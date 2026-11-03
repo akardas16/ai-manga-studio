@@ -12,3 +12,4 @@ pymysql
 aiofiles
 pillow
 python-multipart
+replicate
