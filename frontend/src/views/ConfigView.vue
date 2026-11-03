@@ -27,12 +27,12 @@
         <el-form-item label="Provider">
           <el-select v-model="form.provider" placeholder="Select provider">
             <el-option label="Google" value="google" />
+            <el-option label="OpenAI" value="openai" />
             <el-option label="Replicate" value="replicate" />
           </el-select>
         </el-form-item>
         <el-form-item label="Model Name">
-          <el-input v-model="form.model_name"
-            :placeholder="form.provider === 'replicate' ? 'e.g. black-forest-labs/flux-2-klein-9b' : 'e.g. gemini-3-pro-image-preview'" />
+          <el-input v-model="form.model_name" :placeholder="modelNameHint" />
         </el-form-item>
         <el-form-item label="API Key">
           <el-input v-model="form.api_key" type="password" show-password />
@@ -59,11 +59,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const configs = ref([])
+const modelNameHint = computed(() => {
+  if (form.value.provider === 'replicate') return 'e.g. black-forest-labs/flux-2-klein-9b'
+  if (form.value.provider === 'openai') return 'e.g. gpt-5 (text) or gpt-4o'
+  return 'e.g. gemini-3-flash-preview (text) / gemini-3-pro-image-preview (image)'
+})
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const form = ref({

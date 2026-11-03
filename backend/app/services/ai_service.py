@@ -29,17 +29,34 @@ class AIService:
         raise NotImplementedError(f"Provider {config.provider} not supported yet.")
 
     def generate_storyboard(self, system_prompt: str, user_input: str) -> str:
-        client, model_name = self._get_client("text")
-        
-        full_prompt = f"{system_prompt}\n\nUser Input: {user_input}\n\nPlease generate the full storyboard in JSON format as requested."
-        
+        from app.cruds.crud_config import get_active_config
+        config = get_active_config(self.session, "text")
+        if not config:
+            raise ValueError("No active configuration found for text model.")
+        provider = (config.provider or "google").lower()
+
+        user_msg = (f"User Input: {user_input}\n\n"
+                    f"Please generate the full storyboard in JSON format as requested.")
+        full_prompt = f"{system_prompt}\n\n{user_msg}"
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
+                if provider == "openai":
+                    from openai import OpenAI
+                    oai = OpenAI(api_key=config.api_key, base_url=config.base_url or None)
+                    resp = oai.chat.completions.create(
+                        model=config.model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_msg},
+                        ],
+                    )
+                    return resp.choices[0].message.content
+                # --- Google (Gemini) default ---
+                client = genai.Client(api_key=config.api_key)
                 response = client.models.generate_content(
-                    model=model_name,
-                    contents=full_prompt
-                )
+                    model=config.model_name, contents=full_prompt)
                 return response.text
             except Exception as e:
                 logger.error(f"Error generating storyboard (Attempt {attempt + 1}/{max_retries}): {e}")
