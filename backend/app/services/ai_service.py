@@ -116,11 +116,12 @@ class AIService:
 
         # Input schema differs per model family on Replicate.
         if is_nano:
-            # google/nano-banana: prompt + image_input[]; no aspect_ratio param.
-            inp = {"prompt": prompt}
+            # google/nano-banana: prompt + image_input[] + aspect_ratio (supported).
+            inp = {"prompt": prompt, "output_format": "png",
+                   "aspect_ratio": aspect_ratio if aspect_ratio in self._FLUX_AR else "1:1"}
             if files:
                 inp["image_input"] = files
-            ar_log = "n/a"
+            ar_log = inp["aspect_ratio"]
         else:
             # FLUX.2: prompt + images[] + aspect_ratio.
             inp = {"prompt": prompt, "output_format": "png"}
@@ -206,7 +207,8 @@ class AIService:
                 msg = str(e).lower()
                 transient = any(k in msg for k in (
                     "429", "throttled", "rate limit", "timed out", "timeout",
-                    "connection", "502", "503", "504", "read operation"))
+                    "connection", "502", "503", "504", "read operation",
+                    "failed to generate"))  # nano/gemini transient overload
                 if transient and attempt < 4:
                     wait = 8 * (attempt + 1)
                     logger.warning(f"Replicate transient error (attempt {attempt+1}): {e}. Retry in {wait}s")
@@ -225,6 +227,21 @@ class AIService:
             raise RuntimeError(f"Replicate model {model} returned no image data")
         logger.info(f"DEBUG: Replicate {model} -> {len(data)} bytes in {time.time()-_t0:.1f}s")
         return data
+
+    def generate_image_flux(self, prompt, context_images=None, aspect_ratio="2:3",
+                            model="black-forest-labs/flux-2-klein-9b") -> bytes:
+        """Fallback generator on FLUX Klein (open-weights, no content filter) using the
+        Replicate key — rescues panels that nano-banana/Gemini refuses to generate."""
+        cfg = self._replicate_config()
+        if not cfg:
+            raise ValueError("No Replicate configuration found for FLUX fallback.")
+
+        class _Cfg:
+            pass
+        fc = _Cfg()
+        fc.api_key = cfg.api_key
+        fc.model_name = model
+        return self._generate_image_replicate(fc, prompt, context_images, aspect_ratio, None)
 
     def nano_edit(self, prompt: str, image_path: str, model: str = "google/nano-banana") -> bytes:
         """Photo -> character via google/nano-banana (image editing with image_input)."""

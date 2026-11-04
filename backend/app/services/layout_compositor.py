@@ -12,7 +12,7 @@ image-generation calls — only the compositing step re-runs.
 import io
 import os
 from typing import Dict, List, Optional
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
 
 # Gemini-supported aspect ratios (value -> w/h) used to size each generated panel.
 ASPECTS = {
@@ -69,8 +69,31 @@ def _cover(img: Image.Image, w: int, h: int, y_focus: float = 0.32) -> Image.Ima
     return img.crop((left, top, left + w, top + h))
 
 
+def _trim_border(img: Image.Image, max_frac: float = 0.28) -> Image.Image:
+    """Trim a uniform near-white or near-black frame/margin that image models
+    (esp. nano-banana) bake around a scene. Conservative: only solid white/black
+    borders, capped per side, with a safety check so real content isn't cropped."""
+    g = img.convert("RGB")
+    w, h = g.size
+    c = g.getpixel((2, 2))
+    if not (min(c) > 232 or max(c) < 24):   # corner isn't a white/black frame -> leave as is
+        return img
+    bg = Image.new("RGB", (w, h), c)
+    mask = ImageChops.difference(g, bg).convert("L").point(lambda p: 255 if p > 20 else 0)
+    bbox = mask.getbbox()
+    if not bbox:
+        return img
+    l, t, r, b = bbox
+    l = min(l, int(w * max_frac)); t = min(t, int(h * max_frac))
+    r = max(r, int(w * (1 - max_frac))); b = max(b, int(h * (1 - max_frac)))
+    if (r - l) < w * 0.45 or (b - t) < h * 0.45:   # safety: don't over-crop
+        return img
+    return g.crop((l, t, r, b))
+
+
 def _fit_into(img: Image.Image, w: int, h: int, y_focus: float = 0.32,
               mismatch_tol: float = 1.3) -> Image.Image:
+    img = _trim_border(img)
     """Fit an image to exactly w x h without losing important content.
     - If the image aspect ~matches the slot: cover-crop (fills the frame).
     - If it mismatches a lot (e.g. a square image in a tall slot): contain the
@@ -144,12 +167,15 @@ def choose_anchor(tile: Image.Image, bubble_w: int, bubble_h: int):
 
 
 def classify_dialogue(d: str):
-    """'Speaker: text' -> (is_narration, clean_text)."""
+    """'Speaker: text' -> (is_narration, clean_text). Empty/placeholder -> no bubble."""
     if not d:
         return False, ""
     low = d.lower().strip()
     is_narr = low.startswith("(anlat") or low.startswith("anlat") or "narration" in low or low.startswith("(narr")
-    text = d.split(":", 1)[1].strip() if ":" in d else d
+    text = d.split(":", 1)[1].strip() if ":" in d else d.strip()
+    # treat silent / placeholder dialogue as no bubble
+    if text.lower().strip(" .-—'\"") in ("", "none", "n/a", "na", "silence", "silent", "no dialogue"):
+        return is_narr, ""
     return is_narr, text
 
 

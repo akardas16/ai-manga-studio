@@ -812,14 +812,32 @@ def generate_layout_page_task(task_id: str, project_id: str):
                     scene = panel.get("scene", "")
                     action = panel.get("action", "")
                     prompt = (f"{style}\n{col}\nScene: {scene}\nAction: {action}\n"
-                              f"Single comic panel, aspect {aspect}. {_LAYOUT_NO_TEXT}")
+                              f"A single full-bleed illustration that FILLS THE ENTIRE FRAME edge to "
+                              f"edge (aspect {aspect}). Do NOT draw panel borders, frames, white "
+                              f"margins, comic-page gutters, or multiple panels — just one scene that "
+                              f"covers the whole image. {_LAYOUT_NO_TEXT}")
                     ctx = list(char_refs)
                     if prev_path:
                         ctx.append(prev_path)
                     log_task_event(session, task_id, f"  drawing panel {idx + 1}/{n} ({aspect})...")
-                    img_bytes = ai.generate_image(
-                        prompt, context_images=ctx,
-                        aspect_ratio=aspect, resolution=project.resolution or "1K")
+                    try:
+                        img_bytes = ai.generate_image(
+                            prompt, context_images=ctx,
+                            aspect_ratio=aspect, resolution=project.resolution or "1K")
+                    except Exception as pe:
+                        # primary model refused/failed -> try FLUX Klein (no content filter)
+                        log_task_event(session, task_id,
+                                       f"  panel {idx + 1}/{n} primary failed ({pe}); trying FLUX fallback...")
+                        try:
+                            img_bytes = ai.generate_image_flux(
+                                prompt, context_images=ctx, aspect_ratio=aspect)
+                        except Exception as pe2:
+                            log_task_event(session, task_id,
+                                           f"  panel {idx + 1}/{n} fallback also failed, leaving blank: {pe2}")
+                            done += 1
+                            task.progress = int((done / total) * 100)
+                            session.add(task); session.commit()
+                            continue
                     # persist the raw panel (also gives us a path for continuity)
                     rel = save_generated_image(session, project_id, "panel", item.id, img_bytes)
                     session.commit()

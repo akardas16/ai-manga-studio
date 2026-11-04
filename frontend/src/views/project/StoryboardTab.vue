@@ -39,111 +39,48 @@
       </div>
     </div>
     
-    <div v-for="item in sortedStoryboard" :key="item.id" class="comic-row">
-      <el-card class="panel-card" shadow="hover">
+    <div class="pages-scroll">
+      <el-card v-for="item in sortedStoryboard" :key="item.id" class="page-card" shadow="hover">
         <template #header>
           <div class="card-header">
             <span class="panel-title">Page {{ item.sequence }}</span>
-            <div class="header-actions">
-              <el-select :model-value="item.data.layout_template_id || ''" size="small"
-                placeholder="Layout" style="width: 160px"
-                @change="(v) => setPageLayout(item, v)">
-                <el-option label="Auto / Random" value="" />
-                <el-option v-for="t in layoutsForPage(item)" :key="t.id" :label="t.name" :value="t.id" />
-              </el-select>
-              <el-button size="small" type="primary" link @click="openJsonEditor(item)">Edit JSON</el-button>
-              <el-tooltip :disabled="hasCharacters" content="Please generate character images in Character Studio first" placement="top">
-                <el-button size="small" type="primary" plain @click="generatePanel(item.id)" :disabled="!hasCharacters">Regenerate</el-button>
-              </el-tooltip>
-            </div>
+            <el-select :model-value="item.data.layout_template_id || ''" size="small"
+              placeholder="Layout" style="width: 140px"
+              @change="(v) => setPageLayout(item, v)">
+              <el-option label="Auto / Random" value="" />
+              <el-option v-for="t in layoutsForPage(item)" :key="t.id" :label="t.name" :value="t.id" />
+            </el-select>
           </div>
         </template>
-        <el-row :gutter="24">
-          <!-- Left: Panel Details -->
-          <el-col :xs="24" :sm="10" :md="8" :lg="8">
-            <div class="panel-details">
-              <!-- Scene Info -->
-              <div class="detail-group" v-if="item.data.scene">
-                <label>Scene:</label>
-                <div class="detail-content">{{ item.data.scene }}</div>
-              </div>
 
-              <!-- Action Info -->
-              <div class="detail-group" v-if="item.data.action">
-                <label>Action:</label>
-                <div class="detail-content">{{ item.data.action }}</div>
-              </div>
+        <div class="page-image-wrap">
+          <el-image
+            v-if="item.image_url"
+            :src="`${item.image_url}?v=${imageVersion}`"
+            fit="contain"
+            class="page-preview"
+            :preview-src-list="[`${item.image_url}?v=${imageVersion}`]"
+          >
+            <template #error><div class="image-slot"><el-icon><icon-picture /></el-icon></div></template>
+          </el-image>
+          <div v-else class="no-image"><span>No Image</span></div>
+        </div>
 
-              <!-- Dialogue Info -->
-              <div class="detail-group" v-if="item.data.dialogue">
-                <label>Dialogue:</label>
-                <div class="detail-content">{{ item.data.dialogue }}</div>
-              </div>
-
-              <!-- Prompt (Existing) -->
-              <div class="detail-group mt-3">
-                <label>Full Prompt:</label>
-                <div class="detail-content prompt-text">
-                  {{ item.data.prompt || 'No prompt set' }}
-                </div>
-              </div>
-              
-              <div class="detail-group mt-3" v-if="item.data.negative_prompt">
-                <label>Negative Prompt:</label>
-                <div class="detail-content sm-text text-gray">
-                  {{ item.data.negative_prompt }}
-                </div>
-              </div>
-
-              <div class="detail-group mt-3">
-                <label>Included Characters:</label>
-                <div class="detail-content">
-                  <div v-if="getPanelCharacters(item.id).length" class="tags-wrapper">
-                    <el-tag v-for="name in getPanelCharacters(item.id)" :key="name" size="small" effect="dark">{{ name }}</el-tag>
-                  </div>
-                  <span v-else class="text-gray sm-text">No explicit characters</span>
-                </div>
-              </div>
-            </div>
-          </el-col>
-          
-          <!-- Right: Image Preview -->
-          <el-col :xs="24" :sm="14" :md="16" :lg="16">
-            <div class="image-area">
-              <div class="image-wrapper">
-                <el-image 
-                  v-if="item.image_url" 
-                  :src="`${item.image_url}?v=${imageVersion}`" 
-                  fit="contain" 
-                  class="comic-preview"
-                  :preview-src-list="[`${item.image_url}?v=${imageVersion}`]"
-                >
-                  <template #error>
-                    <div class="image-slot">
-                      <el-icon><icon-picture /></el-icon>
-                    </div>
-                  </template>
-                </el-image>
-                <div v-else class="no-image">
-                  <span>No Image Generated</span>
-                </div>
-              </div>
-              
-              <div v-if="item.image_url" class="image-actions mt-2">
-                <a :href="item.image_url" :download="`panel_${item.sequence}.png`" target="_blank" class="mr-2">
-                  <el-button size="small" type="info" plain>Download</el-button>
-                </a>
-                <el-button size="small" @click="emit('open-history', 'panel', item.id)">History</el-button>
-              </div>
-            </div>
-          </el-col>
-        </el-row>
+        <div class="page-actions">
+          <el-tooltip :disabled="hasCharacters" content="Generate character images first" placement="top">
+            <el-button size="small" type="primary" plain @click="generatePanel(item.id)" :disabled="!hasCharacters">Regenerate</el-button>
+          </el-tooltip>
+          <el-button size="small" link @click="openJsonEditor(item)">Edit JSON</el-button>
+          <a v-if="item.image_url" :href="item.image_url" :download="`page_${item.sequence}.png`" target="_blank">
+            <el-button size="small" link>Download</el-button>
+          </a>
+        </div>
       </el-card>
     </div>
 
-    <JsonEditorDialog 
-      v-model:visible="showJsonEditor" 
-      :content="currentEditorContent" 
+    <JsonEditorDialog
+      v-model:visible="showJsonEditor"
+      :content="currentEditorContent"
       :title="`Edit Panel ${currentEditingItem?.sequence || ''}`"
       @save="handleJsonSave"
     />
@@ -278,6 +215,33 @@ const generatePanel = async (itemId) => {
 }
 .comic-row {
     margin-bottom: 24px;
+}
+/* Horizontal scroll of page cards */
+.pages-scroll {
+    display: flex;
+    gap: 18px;
+    overflow-x: auto;
+    padding: 4px 4px 18px;
+    scroll-snap-type: x proximity;
+}
+.page-card {
+    flex: 0 0 auto;
+    width: 320px;
+    border: 1px solid #333;
+    background-color: #1e1e1e;
+    scroll-snap-align: start;
+}
+.page-image-wrap {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    background: #141414;
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+}
+.page-preview { width: 100%; height: 100%; cursor: zoom-in; }
+.page-actions {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap;
 }
 .panel-card {
     border: 1px solid #333;
