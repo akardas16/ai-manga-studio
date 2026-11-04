@@ -26,18 +26,11 @@
         <el-form-item label="Pages">
           <el-input-number v-model="project.page_count" :min="1" :max="20" @change="saveSettings" class="w-150" />
         </el-form-item>
-        <el-form-item label="Aspect Ratio">
+        <el-form-item label="Page Shape">
           <el-select v-model="project.aspect_ratio" placeholder="Select" @change="saveSettings" class="w-150">
-            <el-option label="1:1" value="1:1" />
-            <el-option label="2:3" value="2:3" />
-            <el-option label="3:2" value="3:2" />
-            <el-option label="3:4" value="3:4" />
-            <el-option label="4:3" value="4:3" />
-            <el-option label="4:5" value="4:5" />
-            <el-option label="5:4" value="5:4" />
-            <el-option label="9:16" value="9:16" />
-            <el-option label="16:9" value="16:9" />
-            <el-option label="21:9" value="21:9" />
+            <el-option label="Portrait (2:3)" value="2:3" />
+            <el-option label="Tall (9:16)" value="9:16" />
+            <el-option label="Square (1:1)" value="1:1" />
           </el-select>
         </el-form-item>
         <el-form-item label="Resolution">
@@ -73,7 +66,7 @@
         <div class="auto-spark">✦</div>
         <div class="auto-txt">
           <b>Auto layout</b>
-          <div class="muted">We choose from the {{ project.panel_count || '—' }}-panel templates based on pacing.</div>
+          <div class="muted">We pick a {{ project.panel_count || '—' }}-panel layout for you — varied per page across multiple pages.</div>
         </div>
         <div class="auto-badge" :class="{ on: layoutMode === 'auto' }">Recommended</div>
       </div>

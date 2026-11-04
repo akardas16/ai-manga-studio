@@ -5,7 +5,9 @@ from app.models.models import Project, Character, StoryboardItem, Task, ImageHis
 from app.services.ai_service import AIService
 from app.services.consistency_service import ConsistencyService
 from app.services import layout_compositor
-from app.core.layouts import CANVAS as LAYOUT_CANVAS, select_layout
+from app.core.layouts import (CANVAS as LAYOUT_CANVAS, select_layout, canvas_for,
+                              scale_template, templates_for, get_template)
+import random
 from PIL import Image
 import io
 from app.utils.json_utils import extract_json_blocks
@@ -772,9 +774,21 @@ def generate_layout_page_task(task_id: str, project_id: str):
                 n = len(plot)
                 if n == 0:
                     continue
-                template = select_layout(n, project.page_layout)
+                canvas = canvas_for(project.aspect_ratio or "2:3")
+                pl = project.page_layout or {}
+                per_page_tpl = item.data.get("layout_template_id")
+                if per_page_tpl and get_template(per_page_tpl):
+                    base_t = get_template(per_page_tpl)                      # per-page choice wins
+                elif pl.get("mode") == "manual" and pl.get("template_id"):
+                    base_t = get_template(pl["template_id"]) or select_layout(n, pl)
+                else:
+                    # Auto / unset: random layout per page for variety
+                    choices = templates_for(n) or [select_layout(n, None)]
+                    base_t = random.choice([c for c in choices if c])
+                template = scale_template(base_t, canvas)
                 log_task_event(session, task_id,
-                               f"Panel group {item.sequence}: {n} panels -> layout '{template['id']}'")
+                               f"Panel group {item.sequence}: {n} panels -> layout "
+                               f"'{template['id']}' @ {canvas['w']}x{canvas['h']}")
 
                 style = (item.data.get("meta_info", {}) or {}).get("style") or _LAYOUT_STYLE_DEFAULT
                 col = color_directive(project.color_mode)
@@ -828,7 +842,7 @@ def generate_layout_page_task(task_id: str, project_id: str):
                     texts.append({"panel": slot["i"], "type": "narration" if is_narr else "speech",
                                   "text": txt, "anchor": {"x": ax, "y": ay}})
 
-                page_bytes = layout_compositor.compose(template, LAYOUT_CANVAS, panel_imgs, texts)
+                page_bytes = layout_compositor.compose(template, canvas, panel_imgs, texts)
                 page_url = save_generated_image(session, project_id, "panel", item.id, page_bytes)
                 item.image_url = page_url
                 session.add(item); session.commit()

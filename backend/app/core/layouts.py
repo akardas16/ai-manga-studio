@@ -59,6 +59,34 @@ TEMPLATES: List[Dict] = [
 _BY_ID = {t["id"]: t for t in TEMPLATES}
 
 
+def canvas_for(aspect_ratio: str) -> Dict:
+    """Page canvas for a chosen page shape (e.g. '2:3', '9:16', '1:1').
+    Width stays fixed; height follows the ratio. Falls back to the base 2:3 canvas."""
+    width = CANVAS["w"]
+    try:
+        w, h = aspect_ratio.split(":")
+        return {"w": width, "h": int(round(width * float(h) / float(w)))}
+    except Exception:
+        return dict(CANVAS)
+
+
+def scale_template(template: Dict, target_canvas: Dict) -> Dict:
+    """Scale a template's slot Y coordinates/heights to a target canvas height.
+    Templates are authored on the base CANVAS (2:3); width is unchanged."""
+    import copy
+    fy = target_canvas["h"] / CANVAS["h"]
+    if abs(fy - 1.0) < 1e-6:
+        return template
+    t = copy.deepcopy(template)
+    for s in t["slots"]:
+        if s["shape"] == "rect":
+            s["y"] = int(round(s["y"] * fy))
+            s["h"] = int(round(s["h"] * fy))
+        else:
+            s["points"] = [[x, int(round(y * fy))] for x, y in s["points"]]
+    return t
+
+
 def get_template(template_id: str) -> Optional[Dict]:
     return _BY_ID.get(template_id)
 

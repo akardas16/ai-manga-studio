@@ -99,6 +99,24 @@ def update_storyboard_item(project_id: str, item_id: int, data: Dict = Body(...)
     session.refresh(item)
     return item
 
+@router.put("/{project_id}/storyboard/{item_id}/layout")
+def set_storyboard_item_layout(project_id: str, item_id: int, payload: Dict = Body(...), session: Session = Depends(get_session)):
+    """Set (or clear) the per-page layout template. template_id empty/None => auto/random."""
+    item = session.get(StoryboardItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Storyboard Item not found")
+    data = dict(item.data or {})
+    tpl = payload.get("template_id")
+    if tpl:
+        data["layout_template_id"] = tpl
+    else:
+        data.pop("layout_template_id", None)
+    item.data = data
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
+
 @router.delete("/{project_id}/characters/{char_id}")
 def delete_character(project_id: str, char_id: int, session: Session = Depends(get_session)):
     char = session.get(Character, char_id)

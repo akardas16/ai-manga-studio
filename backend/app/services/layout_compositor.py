@@ -69,6 +69,29 @@ def _cover(img: Image.Image, w: int, h: int, y_focus: float = 0.32) -> Image.Ima
     return img.crop((left, top, left + w, top + h))
 
 
+def _fit_into(img: Image.Image, w: int, h: int, y_focus: float = 0.32,
+              mismatch_tol: float = 1.3) -> Image.Image:
+    """Fit an image to exactly w x h without losing important content.
+    - If the image aspect ~matches the slot: cover-crop (fills the frame).
+    - If it mismatches a lot (e.g. a square image in a tall slot): contain the
+      whole image centered over a blurred, darkened fill of itself, so nothing
+      important is cropped and the frame is still fully filled."""
+    iw, ih = img.size
+    img_ar = iw / ih
+    slot_ar = w / h
+    mismatch = max(img_ar / slot_ar, slot_ar / img_ar)
+    if mismatch <= mismatch_tol:
+        return _cover(img, w, h, y_focus)
+    # blurred/darkened background from the same image (cover), then contain the full image on top
+    bg = _cover(img, w, h, 0.5).filter(ImageFilter.GaussianBlur(28))
+    bg = Image.eval(bg, lambda p: int(p * 0.78))
+    scale = min(w / iw, h / ih)
+    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    fg = img.resize((nw, nh), Image.LANCZOS)
+    bg.paste(fg, ((w - nw) // 2, (h - nh) // 2))
+    return bg
+
+
 def _wrap(draw, text, font, max_w):
     words, lines, cur = text.split(), [], ""
     for wd in words:
@@ -150,14 +173,14 @@ def compose(template: Dict, canvas: Dict, panel_images: Dict, texts: List[Dict],
         x, y, w, h = bbox(slot)
         if slot["shape"] == "rect":
             if i in panel_images and panel_images[i] is not None:
-                tile = _cover(panel_images[i], w, h)
+                tile = _fit_into(panel_images[i], w, h)
                 tiles[i] = tile
                 page.paste(tile, (x, y))
             draw.rectangle([x, y, x + w, y + h], outline="black", width=border)
         else:  # polygon
             pts = slot["points"]
             if i in panel_images and panel_images[i] is not None:
-                tile = _cover(panel_images[i], w, h)
+                tile = _fit_into(panel_images[i], w, h)
                 tiles[i] = tile
                 mask = Image.new("L", (w, h), 0)
                 ImageDraw.Draw(mask).polygon([(px - x, py - y) for px, py in pts], fill=255)

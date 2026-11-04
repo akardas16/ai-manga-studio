@@ -43,8 +43,14 @@
       <el-card class="panel-card" shadow="hover">
         <template #header>
           <div class="card-header">
-            <span class="panel-title">Panel {{ item.sequence }}</span>
+            <span class="panel-title">Page {{ item.sequence }}</span>
             <div class="header-actions">
+              <el-select :model-value="item.data.layout_template_id || ''" size="small"
+                placeholder="Layout" style="width: 160px"
+                @change="(v) => setPageLayout(item, v)">
+                <el-option label="Auto / Random" value="" />
+                <el-option v-for="t in layoutsForPage(item)" :key="t.id" :label="t.name" :value="t.id" />
+              </el-select>
               <el-button size="small" type="primary" link @click="openJsonEditor(item)">Edit JSON</el-button>
               <el-tooltip :disabled="hasCharacters" content="Please generate character images in Character Studio first" placement="top">
                 <el-button size="small" type="primary" plain @click="generatePanel(item.id)" :disabled="!hasCharacters">Regenerate</el-button>
@@ -145,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { Warning, Picture as IconPicture } from '@element-plus/icons-vue'
@@ -159,6 +165,25 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['task-started', 'refresh-project', 'open-history'])
+
+// --- per-page layout selection ---
+const layoutLib = ref([])
+onMounted(async () => {
+  try { layoutLib.value = (await axios.get('/api/v1/layouts/')).data.templates } catch (e) { /* ignore */ }
+})
+const pagePanelCount = (item) => (item.data?.plot_breakdown?.length) || 4
+const layoutsForPage = (item) => layoutLib.value.filter(t => t.panels === pagePanelCount(item))
+const setPageLayout = async (item, templateId) => {
+  try {
+    await axios.put(`/api/v1/projects/${props.projectId}/storyboard/${item.id}/layout`, {
+      template_id: templateId || null,
+    })
+    item.data = { ...item.data, layout_template_id: templateId || undefined }
+    ElMessage.success(templateId ? 'Page layout set' : 'Page layout set to Auto/Random')
+  } catch (e) {
+    ElMessage.error('Failed to set layout')
+  }
+}
 
 const showJsonEditor = ref(false)
 const currentEditingItem = ref(null)
