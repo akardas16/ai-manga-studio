@@ -50,9 +50,14 @@
               <el-button @click="emit('open-history', 'character', selectedChar.id)">History</el-button>
               <input ref="photoInput" type="file" accept="image/png,image/jpeg,image/webp"
                      style="display:none" @change="handlePhotoUpload" />
-              <el-tooltip content="Upload a photo and turn it into this character (cartoonified, likeness preserved)" placement="top">
-                <el-button type="success" plain @click="$refs.photoInput.click()" :disabled="loading">
-                  Create from Photo
+              <el-tooltip content="Upload a photo — Nano Banana restyles it into this character" placement="top">
+                <el-button type="success" plain @click="pickPhoto('nano')" :disabled="loading">
+                  From Photo (Nano)
+                </el-button>
+              </el-tooltip>
+              <el-tooltip content="Upload a photo — FLUX.1 Kontext restyles it, preserving likeness" placement="top">
+                <el-button type="success" plain @click="pickPhoto('flux')" :disabled="loading">
+                  From Photo (Flux)
                 </el-button>
               </el-tooltip>
               <el-button type="primary" @click="generateCharacter(selectedChar.id)" :loading="loading">
@@ -261,6 +266,11 @@ const updateCharacter = async (charId) => {
 }
 
 const photoInput = ref(null)
+const photoEngine = ref('flux')
+const pickPhoto = (engine) => {
+  photoEngine.value = engine
+  photoInput.value?.click()
+}
 const handlePhotoUpload = async (event) => {
   const f = event.target.files && event.target.files[0]
   event.target.value = ''  // allow re-selecting the same file later
@@ -268,13 +278,23 @@ const handlePhotoUpload = async (event) => {
   try {
     const form = new FormData()
     form.append('file', f)
+    form.append('engine', photoEngine.value)
     await axios.post(`/api/v1/generate/character-from-photo/${selectedChar.value.id}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     emit('task-started')
-    ElMessage.info(`Turning your photo into ${selectedChar.value.name}...`)
+    ElMessage.info(`Turning your photo into ${selectedChar.value.name} (${photoEngine.value})...`)
   } catch (e) {
     ElMessage.error('Upload failed: ' + (e.response?.data?.detail || e.message))
+  }
+}
+const createFromText = async (charId) => {
+  try {
+    await axios.post(`/api/v1/generate/character-from-text/${charId}`)
+    emit('task-started')
+    ElMessage.info('Generating character from text with FLUX...')
+  } catch (e) {
+    ElMessage.error('Failed: ' + (e.response?.data?.detail || e.message))
   }
 }
 

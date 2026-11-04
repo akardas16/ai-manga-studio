@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
-from app.routers import configs, projects, generation, export, tasks, history, layouts
+from app.routers import configs, projects, generation, export, tasks, history, layouts, library
 import os
 
 app = FastAPI(title=settings.PROJECT_NAME)
@@ -31,6 +31,7 @@ app.include_router(export.router, prefix=f"{settings.API_V1_STR}/export", tags=[
 app.include_router(tasks.router, prefix=f"{settings.API_V1_STR}/tasks", tags=["tasks"])
 app.include_router(history.router, prefix=f"{settings.API_V1_STR}/history", tags=["history"])
 app.include_router(layouts.router, prefix=f"{settings.API_V1_STR}/layouts", tags=["layouts"])
+app.include_router(library.router, prefix=f"{settings.API_V1_STR}/library", tags=["library"])
 
 @app.on_event("startup")
 def on_startup():

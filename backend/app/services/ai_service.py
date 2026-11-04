@@ -174,6 +174,82 @@ class AIService:
             data = self._downscale(data, target_px)
         return data
 
+    def _replicate_config(self):
+        """Find a Replicate config to source the API token (prefer the active image one)."""
+        from app.models.models import ModelConfig
+        from sqlmodel import select
+        rows = self.session.exec(select(ModelConfig).where(ModelConfig.provider == "replicate")).all()
+        if not rows:
+            return None
+        for c in rows:
+            if c.model_type == "image" and c.is_active:
+                return c
+        return rows[0]
+
+    def _replicate_predict(self, model: str, inp_factory) -> bytes:
+        """Run a Replicate model with retry. inp_factory() returns (open_files, input_dict)
+        and is called fresh each attempt so file handles can be reopened on retry."""
+        import replicate
+        cfg = self._replicate_config()
+        if not cfg:
+            raise ValueError("No Replicate configuration found. Add a Replicate image "
+                             "model in the Models screen to use this feature.")
+        client = replicate.Client(api_token=cfg.api_key, timeout=180)
+        _t0 = time.time()
+        out = None
+        for attempt in range(5):
+            files, inp = inp_factory()
+            try:
+                out = client.run(model, input=inp)
+                break
+            except Exception as e:
+                msg = str(e).lower()
+                transient = any(k in msg for k in (
+                    "429", "throttled", "rate limit", "timed out", "timeout",
+                    "connection", "502", "503", "504", "read operation"))
+                if transient and attempt < 4:
+                    wait = 8 * (attempt + 1)
+                    logger.warning(f"Replicate transient error (attempt {attempt+1}): {e}. Retry in {wait}s")
+                    time.sleep(wait)
+                    continue
+                raise
+            finally:
+                for f in files:
+                    try:
+                        f.close()
+                    except Exception:
+                        pass
+        item = out[0] if isinstance(out, (list, tuple)) else out
+        data = self._read_replicate_output(item)
+        if not data:
+            raise RuntimeError(f"Replicate model {model} returned no image data")
+        logger.info(f"DEBUG: Replicate {model} -> {len(data)} bytes in {time.time()-_t0:.1f}s")
+        return data
+
+    def nano_edit(self, prompt: str, image_path: str, model: str = "google/nano-banana") -> bytes:
+        """Photo -> character via google/nano-banana (image editing with image_input)."""
+        def factory():
+            f = open(image_path, "rb")
+            return [f], {"prompt": prompt, "image_input": [f]}
+        return self._replicate_predict(model, factory)
+
+    def kontext_edit(self, prompt: str, image_path: str,
+                     model: str = "black-forest-labs/flux-kontext-pro",
+                     aspect_ratio: str = "match_input_image") -> bytes:
+        """Photo -> character via FLUX.1 Kontext (text-guided image editing, likeness preserved)."""
+        def factory():
+            f = open(image_path, "rb")
+            return [f], {"prompt": prompt, "input_image": f,
+                         "aspect_ratio": aspect_ratio, "output_format": "png"}
+        return self._replicate_predict(model, factory)
+
+    def kontext_text(self, prompt: str, aspect_ratio: str = "1:1",
+                     model: str = "black-forest-labs/flux-kontext-pro") -> bytes:
+        """Text -> character via FLUX.1 Kontext (no input image)."""
+        def factory():
+            return [], {"prompt": prompt, "aspect_ratio": aspect_ratio, "output_format": "png"}
+        return self._replicate_predict(model, factory)
+
     def generate_image(self, prompt: str, context_images: List[str] = None, aspect_ratio: str = "16:9", resolution: str = "2K") -> bytes:
         from app.cruds.crud_config import get_active_config
         config = get_active_config(self.session, "image")

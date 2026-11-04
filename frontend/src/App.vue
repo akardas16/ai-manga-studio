@@ -5,6 +5,7 @@
         <div class="logo">AI Comic Generator</div>
         <el-menu mode="horizontal" router :default-active="$route.path" class="nav-menu">
           <el-menu-item index="/">Projects</el-menu-item>
+          <el-menu-item index="/characters">Characters</el-menu-item>
           <el-menu-item index="/config">Models</el-menu-item>
         </el-menu>
       </el-header>

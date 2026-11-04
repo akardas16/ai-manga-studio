@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Form
 from sqlmodel import Session
 from app.core.database import get_session
 from app.models.models import Project, Character, StoryboardItem, Task, ImageHistory
@@ -925,11 +925,19 @@ def generate_all_characters(
     
     return {"task_id": task.id}
 
-def generate_character_from_photo_task(task_id: str, character_id: int, photo_path: str):
-    """Turn a user-uploaded photo into a stylized (cartoonified) character reference sheet,
-    preserving the person's likeness but redrawing them in the project's style."""
-    from app.core.database import engine
-    with Session(engine) as session:
+def _char_style_personality(char):
+    data = char.data
+    meta = data.get("meta_info", {}) or {}
+    style = meta.get("style") or "Modern anime/manga style"
+    personality = data.get("personality", "") or meta.get("personality", "")
+    return style, personality
+
+
+def generate_character_from_photo_task(task_id: str, character_id: int, photo_path: str, engine: str = "flux"):
+    """Turn a user-uploaded photo into a stylized character, preserving the person's likeness.
+    engine='flux' -> FLUX.1 Kontext; engine='nano' -> google/nano-banana."""
+    from app.core.database import engine as db_engine
+    with Session(db_engine) as session:
         task = session.get(Task, task_id)
         if not task:
             logger.error(f"Task {task_id} not found")
@@ -941,38 +949,70 @@ def generate_character_from_photo_task(task_id: str, character_id: int, photo_pa
             if not char:
                 raise ValueError("Character not found")
             ai = AIService(session)
-            data = char.data
-            meta = data.get("meta_info", {}) or {}
-            name = data.get("name", "Character")
-            style = meta.get("style") or "Modern anime/manga style"
-            personality = data.get("personality", "") or meta.get("personality", "")
-
+            style, _ = _char_style_personality(char)
             prompt = (
-                f"Using the provided PHOTOGRAPH as the identity reference, create a character "
-                f"reference sheet for '{name}'.\n"
-                f"Redraw this real person as an illustrated character in this style: {style}. "
-                f"Preserve their likeness — face shape, hairstyle and color, skin tone, and "
-                f"distinctive features — but fully stylize them (illustrated, NOT a photo).\n"
-                f"Include Front View, Side View, and clothing/accessories. "
-                f"Expression/pose can reflect: {personality}.\n"
+                f"Restyle this person as an illustrated {style} comic character. "
+                f"Keep the same facial features, hairstyle and hair color, skin tone, and "
+                f"overall likeness, while fully redrawing them as a clean illustration (not a photo). "
+                f"Centered character portrait, simple plain background. "
                 + color_directive(char.project.color_mode)
             )
-
-            log_task_event(session, task_id, f"Cartoonifying uploaded photo for {name}...")
-            image_bytes = ai.generate_image(
-                prompt,
-                context_images=[photo_path],
-                aspect_ratio=char.project.aspect_ratio or "16:9",
-                resolution=char.project.resolution or "2K",
-            )
+            if engine == "nano":
+                log_task_event(session, task_id, f"Creating '{char.name}' from photo with Nano Banana...")
+                image_bytes = ai.nano_edit(prompt, photo_path)
+            else:
+                log_task_event(session, task_id, f"Creating '{char.name}' from photo with FLUX.1 Kontext...")
+                image_bytes = ai.kontext_edit(prompt, photo_path, aspect_ratio="match_input_image")
             rel = save_generated_image(session, char.project_id, "character", char.id, image_bytes)
             char.image_url = rel
             session.add(char)
             task.status = "completed"; task.progress = 100
             session.add(task); session.commit()
-            log_task_event(session, task_id, f"Character '{name}' created from photo.")
+            log_task_event(session, task_id, f"Character '{char.name}' created from photo ({engine}).")
         except Exception as e:
             logger.error(f"Photo->character task {task_id} failed: {e}\n{traceback.format_exc()}")
+            task.status = "failed"; task.message = f"{e}"
+            log_task_event(session, task_id, f"Failed: {e}")
+            session.add(task); session.commit()
+
+
+def generate_character_from_text_task(task_id: str, character_id: int):
+    """Generate a character from its text description using FLUX.1 Kontext (text-to-image)."""
+    from app.core.database import engine as db_engine
+    with Session(db_engine) as session:
+        task = session.get(Task, task_id)
+        if not task:
+            return
+        task.status = "processing"
+        session.add(task); session.commit()
+        try:
+            char = session.get(Character, character_id)
+            if not char:
+                raise ValueError("Character not found")
+            ai = AIService(session)
+            data = char.data
+            meta = data.get("meta_info", {}) or {}
+            style, personality = _char_style_personality(char)
+            desc = ""
+            for p in data.get("design_panels", []):
+                desc += f"- {p.get('view','')}: {p.get('description','')}\n"
+            prompt = (
+                f"Character reference illustration of '{data.get('name','Character')}' "
+                f"in {style}. Role: {meta.get('role','')}. Age: {meta.get('age','')}. "
+                f"Personality: {personality}.\n{desc}\n"
+                f"Full-body character on a simple plain background, clean comic illustration. "
+                + color_directive(char.project.color_mode)
+            )
+            log_task_event(session, task_id, f"Generating '{char.name}' from text with FLUX.1 Kontext...")
+            image_bytes = ai.kontext_text(prompt, aspect_ratio="2:3")
+            rel = save_generated_image(session, char.project_id, "character", char.id, image_bytes)
+            char.image_url = rel
+            session.add(char)
+            task.status = "completed"; task.progress = 100
+            session.add(task); session.commit()
+            log_task_event(session, task_id, f"Character '{char.name}' created from text (FLUX).")
+        except Exception as e:
+            logger.error(f"Text->character task {task_id} failed: {e}\n{traceback.format_exc()}")
             task.status = "failed"; task.message = f"{e}"
             log_task_event(session, task_id, f"Failed: {e}")
             session.add(task); session.commit()
@@ -983,12 +1023,13 @@ async def generate_character_from_photo(
     character_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    engine: str = Form("flux"),
     session: Session = Depends(get_session),
 ):
     char = session.get(Character, character_id)
     if not char:
         raise HTTPException(status_code=404, detail="Character not found")
-    # save the uploaded photo under the project's static dir
+    engine = "nano" if str(engine).lower() == "nano" else "flux"
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     up_dir = os.path.join(base_dir, "static", char.project_id, "uploads")
     os.makedirs(up_dir, exist_ok=True)
@@ -1000,9 +1041,25 @@ async def generate_character_from_photo(
         f.write(await file.read())
 
     task = Task(type="image_generation", status="pending", project_id=char.project_id,
-                name=f"Photo → {char.name}", description="Cartoonifying uploaded photo")
+                name=f"Photo→{char.name} ({engine})", description=f"Photo to character via {engine}")
     session.add(task); session.commit(); session.refresh(task)
-    background_tasks.add_task(generate_character_from_photo_task, task.id, char.id, photo_path)
+    background_tasks.add_task(generate_character_from_photo_task, task.id, char.id, photo_path, engine)
+    return {"task_id": task.id}
+
+
+@router.post("/character-from-text/{character_id}")
+def generate_character_from_text(
+    character_id: int,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    char = session.get(Character, character_id)
+    if not char:
+        raise HTTPException(status_code=404, detail="Character not found")
+    task = Task(type="image_generation", status="pending", project_id=char.project_id,
+                name=f"Text→{char.name} (FLUX)", description="Text to character via FLUX Kontext")
+    session.add(task); session.commit(); session.refresh(task)
+    background_tasks.add_task(generate_character_from_text_task, task.id, char.id)
     return {"task_id": task.id}
 
 

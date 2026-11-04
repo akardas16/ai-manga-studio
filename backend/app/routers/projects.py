@@ -16,7 +16,9 @@ def create_project(project_in: ProjectCreate, session: Session = Depends(get_ses
 
 @router.get("/", response_model=List[Project])
 def read_projects(skip: int = 0, limit: int = 100, session: Session = Depends(get_session)):
-    return crud_project.get_projects(session, skip, limit)
+    projs = crud_project.get_projects(session, skip, limit)
+    # hide the internal character-library project from the normal projects list
+    return [p for p in projs if p.title != "__character_library__"]
 
 @router.get("/{project_id}", response_model=ProjectRead)
 def read_project(project_id: str, session: Session = Depends(get_session)):
